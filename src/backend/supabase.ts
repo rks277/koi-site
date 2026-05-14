@@ -167,7 +167,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+
+  const text = await response.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 function normalizeFishGenomeRow(row: FishGenomeRow): FishGenomeRecord {
