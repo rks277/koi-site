@@ -80,6 +80,13 @@ export function renderKoi(
   //    fins → body outline → eyes.
   const bodyPath = makePath(body.silhouette, true);
 
+  const bodyGradient = ctx.createLinearGradient(0, -koi.genome.bodyThickness, 0, koi.genome.bodyThickness);
+  bodyGradient.addColorStop(0, koi.palette.baseLight);
+  bodyGradient.addColorStop(0.55, koi.palette.base);
+  bodyGradient.addColorStop(1, koi.palette.baseLight);
+  ctx.fillStyle = bodyGradient;
+  ctx.fill(bodyPath);
+
   ctx.save();
   ctx.clip(bodyPath);
   for (const mark of koi.markings) {
@@ -101,6 +108,12 @@ export function renderKoi(
   }
   for (const fin of drawOrder) {
     const membranePath = makePath(fin.membrane, true);
+    ctx.save();
+    ctx.globalAlpha = 0.24;
+    ctx.fillStyle = koi.palette.baseLight;
+    ctx.fill(membranePath);
+    ctx.restore();
+
     ctx.save();
     ctx.clip(membranePath);
     strokeFinRays(ctx, fin.rays, koi.genome);
