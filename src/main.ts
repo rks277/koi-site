@@ -39,6 +39,13 @@ interface Fish {
   replacing: boolean;
 }
 
+interface RectBounds {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
 let W = 0;
 let H = 0;
 let fish: Fish[] = [];
@@ -113,6 +120,31 @@ function randomPosForLength(len: number): { x: number; y: number } {
   };
 }
 
+function expandedContentRect(len: number, extraPad = 0): RectBounds | null {
+  if (!contentRect) return null;
+  const pad = 12 + len * 0.25 + extraPad;
+  return {
+    left: contentRect.left - pad,
+    right: contentRect.right + pad,
+    top: contentRect.top - pad,
+    bottom: contentRect.bottom + pad
+  };
+}
+
+function pointInRect(pos: { x: number; y: number }, rect: RectBounds): boolean {
+  return pos.x > rect.left && pos.x < rect.right && pos.y > rect.top && pos.y < rect.bottom;
+}
+
+function randomOpenPosForLength(len: number): { x: number; y: number } {
+  const trapRect = expandedContentRect(len, len * 0.4);
+  let pos = randomPosForLength(len);
+  for (let t = 0; t < PLACEMENT_TRIES; t++) {
+    if ((!trapRect || !pointInRect(pos, trapRect)) && !overlapsExisting(pos, len)) return pos;
+    pos = randomPosForLength(len);
+  }
+  return pos;
+}
+
 function overlapsExisting(pos: { x: number; y: number }, len: number): boolean {
   for (const other of fish) {
     const dx = pos.x - other.pos.x;
@@ -127,10 +159,10 @@ function spawnFish(record: FishGenomeRecord, slotIndex: number, activatedAt: str
   const koi = buildKoiFromGenome(record.genome.seed, record.genome.parameters, scaleForFish(record));
   const len = bodyLengthPx(koi);
 
-  let pos = randomPosForLength(len);
+  let pos = randomOpenPosForLength(len);
   for (let t = 0; t < PLACEMENT_TRIES; t++) {
     if (!overlapsExisting(pos, len)) break;
-    pos = randomPosForLength(len);
+    pos = randomOpenPosForLength(len);
   }
   return {
     slotIndex,
@@ -438,6 +470,34 @@ function turnAwayFromWall(f: Fish, normalX: number, normalY: number): void {
   f.heading = Math.atan2(normalY * 0.9 + tangentY * 0.35, normalX * 0.9 + tangentX * 0.35);
 }
 
+function recoverFromTrap(f: Fish, len: number): void {
+  const rect = expandedContentRect(len, len * 0.35);
+  if (!rect) return;
+
+  const screenPad = len * 0.5;
+  const nearLeft = f.pos.x <= screenPad + 2 && rect.left < screenPad + len;
+  const nearRight = f.pos.x >= W - screenPad - 2 && rect.right > W - screenPad - len;
+  const nearTop = f.pos.y <= screenPad + 2 && rect.top < screenPad + len;
+  const nearBottom = f.pos.y >= H - screenPad - 2 && rect.bottom > H - screenPad - len;
+  const narrowLeft = rect.left < len * 1.1;
+  const narrowRight = W - rect.right < len * 1.1;
+  const narrowTop = rect.top < len * 1.1;
+  const narrowBottom = H - rect.bottom < len * 1.1;
+
+  const trapped =
+    pointInRect(f.pos, rect) ||
+    (nearLeft && narrowLeft) ||
+    (nearRight && narrowRight) ||
+    (nearTop && narrowTop) ||
+    (nearBottom && narrowBottom);
+  if (!trapped) return;
+
+  f.pos = randomOpenPosForLength(len);
+  const targetX = W * 0.5 - f.pos.x;
+  const targetY = H * 0.5 - f.pos.y;
+  f.heading = Math.atan2(targetY, targetX) + (Math.random() - 0.5) * 0.6;
+}
+
 function updatePhysics(dt: number): void {
   const margin = 100;
 
@@ -512,12 +572,12 @@ function updatePhysics(dt: number): void {
     // along edges and corners — no abrupt turn-around.
     let boxX = 0;
     let boxY = 0;
-    if (contentRect) {
-      const pad = 12 + lenF * 0.25;
-      const rL = contentRect.left - pad;
-      const rR = contentRect.right + pad;
-      const rT = contentRect.top - pad;
-      const rB = contentRect.bottom + pad;
+    const textRect = expandedContentRect(lenF);
+    if (textRect) {
+      const rL = textRect.left;
+      const rR = textRect.right;
+      const rT = textRect.top;
+      const rB = textRect.bottom;
       const influence = lenF * 1.4;
 
       // Closest point on the rect to the fish (clamped).
@@ -587,12 +647,11 @@ function updatePhysics(dt: number): void {
     // Hard clamp safety: if the steering wasn't enough to keep the fish out
     // of the text rect this frame, snap to the nearest edge so it can never
     // visually swim under the text.
-    if (contentRect) {
-      const pad = 12 + lenF * 0.25;
-      const rL = contentRect.left - pad;
-      const rR = contentRect.right + pad;
-      const rT = contentRect.top - pad;
-      const rB = contentRect.bottom + pad;
+    if (textRect) {
+      const rL = textRect.left;
+      const rR = textRect.right;
+      const rT = textRect.top;
+      const rB = textRect.bottom;
       if (f.pos.x > rL && f.pos.x < rR && f.pos.y > rT && f.pos.y < rB) {
         const dL = f.pos.x - rL;
         const dR = rR - f.pos.x;
@@ -624,6 +683,8 @@ function updatePhysics(dt: number): void {
       f.pos.y = H - screenPad;
       turnAwayFromWall(f, 0, -1);
     }
+
+    recoverFromTrap(f, lenF);
   }
 }
 
