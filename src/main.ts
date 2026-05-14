@@ -319,18 +319,34 @@ function resize(): void {
 }
 addEventListener('resize', resize);
 
-addEventListener('click', (e) => {
-  // Generous circular hit area — at least 30px or 60% of body length, whichever is bigger.
+function fishAtPoint(x: number, y: number): Fish | null {
   for (const f of fish) {
     const len = bodyLengthPx(f.koi);
-    const hitR = Math.max(30, len * 0.6);
-    if (Math.hypot(e.clientX - f.pos.x, e.clientY - f.pos.y) < hitR) {
-      void regenerateFish(f).catch((error) => {
-        f.replacing = false;
-        console.error('Could not evolve koi.', error);
-      });
-      return;
-    }
+    const halfLen = len * 0.5;
+    const dx = x - f.pos.x;
+    const dy = y - f.pos.y;
+    const along = dx * Math.cos(f.heading) + dy * Math.sin(f.heading);
+    const across = -dx * Math.sin(f.heading) + dy * Math.cos(f.heading);
+    const clampedAlong = Math.max(-halfLen, Math.min(halfLen, along));
+    const distToBody = Math.hypot(along - clampedAlong, across);
+    const hitR = Math.max(18, len * 0.18);
+
+    if (distToBody < hitR) return f;
+  }
+  return null;
+}
+
+addEventListener('pointermove', (e) => {
+  document.body.style.cursor = fishAtPoint(e.clientX, e.clientY) ? 'pointer' : '';
+});
+
+addEventListener('click', (e) => {
+  const f = fishAtPoint(e.clientX, e.clientY);
+  if (f) {
+    void regenerateFish(f).catch((error) => {
+      f.replacing = false;
+      console.error('Could not evolve koi.', error);
+    });
   }
 });
 
