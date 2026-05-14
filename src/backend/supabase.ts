@@ -98,9 +98,20 @@ export async function updateFishFitness(id: string, fitness: number): Promise<vo
 
 export async function activateFishSlot(slotIndex: number, fishId: string): Promise<void> {
   ensureConfig();
-  await request('/rest/v1/active_fish_slots?on_conflict=slot_index', {
+  await request(`/rest/v1/active_fish_slots?slot_index=eq.${slotIndex}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      fish_id: fishId,
+      activated_at: new Date().toISOString()
+    })
+  });
+}
+
+async function createActiveFishSlot(slotIndex: number, fishId: string): Promise<void> {
+  await request('/rest/v1/active_fish_slots', {
     method: 'POST',
-    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    headers: { Prefer: 'return=minimal' },
     body: JSON.stringify({
       slot_index: slotIndex,
       fish_id: fishId,
@@ -127,7 +138,7 @@ async function bootstrapMissingSlots(existing: ActiveFishSlotRecord[]): Promise<
   for (let slotIndex = 1; slotIndex <= ACTIVE_SLOT_COUNT; slotIndex++) {
     if (slotsByIndex.has(slotIndex)) continue;
     const fish = await createFishGenome();
-    await activateFishSlot(slotIndex, fish.id);
+    await createActiveFishSlot(slotIndex, fish.id);
     slotsByIndex.set(slotIndex, {
       slot_index: slotIndex,
       fish_id: fish.id,
