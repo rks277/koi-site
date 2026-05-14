@@ -1,9 +1,11 @@
 import {
   createRandomStoredGenome,
+  createStoredGenomeForVariety,
   normalizeStoredGenome,
   type FishGenomeRecord,
   type StoredGenome
 } from '../evolution/genomes';
+import type { KoiVariety } from '../types';
 
 export interface ActiveFishSlotRecord {
   slot_index: number;
@@ -30,6 +32,7 @@ interface ActiveFishSlotRow {
 }
 
 const ACTIVE_SLOT_COUNT = 7;
+const INITIAL_VARIETIES: KoiVariety[] = ['kohaku', 'sanke', 'asagi', 'platinum', 'kohaku', 'sanke', 'ogon'];
 const env = import.meta.env as ImportMetaEnv & Record<string, string | undefined>;
 const supabaseUrl = normalizeEnvValue(env.VITE_SUPABASE_URL ?? env.NEXT_PUBLIC_SUPABASE_URL ?? '');
 const supabaseAnonKey = normalizeEnvValue(env.VITE_SUPABASE_ANON_KEY ?? env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '');
@@ -137,7 +140,9 @@ async function bootstrapMissingSlots(existing: ActiveFishSlotRecord[]): Promise<
 
   for (let slotIndex = 1; slotIndex <= ACTIVE_SLOT_COUNT; slotIndex++) {
     if (slotsByIndex.has(slotIndex)) continue;
-    const fish = await createFishGenome();
+    const fish = await createFishGenome({
+      genome: createStoredGenomeForVariety(INITIAL_VARIETIES[slotIndex - 1])
+    });
     await createActiveFishSlot(slotIndex, fish.id);
     slotsByIndex.set(slotIndex, {
       slot_index: slotIndex,

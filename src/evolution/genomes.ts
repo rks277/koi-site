@@ -1,5 +1,4 @@
 import { genomeFromSeed } from '../genome/generate';
-import { VARIETIES } from '../pigmentation/palettes';
 import type { Genome, KoiVariety } from '../types';
 
 export interface StoredGenome {
@@ -44,14 +43,32 @@ type NumericGenomeKey = keyof typeof NUMERIC_RANGES;
 
 const INTEGER_KEYS = new Set<NumericGenomeKey>(['markingCount']);
 const SIZE_FACTOR_RANGE = [0.045, 0.080] as const;
+const VARIETY_WEIGHTS: Array<[KoiVariety, number]> = [
+  ['kohaku', 26],
+  ['sanke', 24],
+  ['asagi', 18],
+  ['platinum', 14],
+  ['ogon', 8],
+  ['showa', 3],
+  ['utsuri', 2]
+];
+const VARIETIES = VARIETY_WEIGHTS.map(([variety]) => variety);
 
 export function createRandomStoredGenome(): StoredGenome {
   const seed = Math.floor(Math.random() * 1e9);
+  const parameters = genomeFromSeed(seed).genome;
+  parameters.variety = weightedRandomVariety();
   return {
     seed,
     sizeFactor: randomSizeFactor(),
-    parameters: genomeFromSeed(seed).genome
+    parameters
   };
+}
+
+export function createStoredGenomeForVariety(variety: KoiVariety): StoredGenome {
+  const stored = createRandomStoredGenome();
+  stored.parameters.variety = variety;
+  return stored;
 }
 
 export function normalizeStoredGenome(value: unknown): StoredGenome {
@@ -127,8 +144,18 @@ function weightedPick(records: FishGenomeRecord[]): FishGenomeRecord {
 }
 
 function inheritVariety(a: KoiVariety, b: KoiVariety): KoiVariety {
-  if (Math.random() < 0.04) return VARIETIES[Math.floor(Math.random() * VARIETIES.length)];
+  if (Math.random() < 0.04) return weightedRandomVariety();
   return Math.random() < 0.5 ? a : b;
+}
+
+function weightedRandomVariety(): KoiVariety {
+  const total = VARIETY_WEIGHTS.reduce((sum, [, weight]) => sum + weight, 0);
+  let target = Math.random() * total;
+  for (const [variety, weight] of VARIETY_WEIGHTS) {
+    target -= weight;
+    if (target <= 0) return variety;
+  }
+  return VARIETY_WEIGHTS[0][0];
 }
 
 function normalize(value: number, min: number, max: number): number {
