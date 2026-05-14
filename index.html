@@ -40,6 +40,7 @@
     </button>
     <div id="info-panel" class="info-panel" hidden>
       <strong>7 live koi</strong>
+      <p>Each koi is persistent (it's the same one that everyone sees) until someone kills it (that's really mean).</p>
       <p>DB: <code>active_fish_slots(slot, fish_id, activated_at)</code> points to <code>fish_genomes(genome, generation, parents, fitness)</code>.</p>
       <p>On click: <code>f = clicked_at - activated_at</code>. Parents use <code>P(i)=exp(beta f_i)/sum exp(beta f_j)</code>.</p>
       <p>Child genes: <code>c_k=clip(lambda a_k+(1-lambda)b_k+eps,0,1)</code>, with rare larger <code>eps</code>.</p>

@@ -109,6 +109,18 @@ export async function activateFishSlot(slotIndex: number, fishId: string): Promi
   });
 }
 
+export async function recordSiteVisitor(visitorId: string): Promise<void> {
+  ensureConfig();
+  await request('/rest/v1/site_visitors?on_conflict=visitor_id', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify({
+      visitor_id: visitorId,
+      last_seen_at: new Date().toISOString()
+    })
+  });
+}
+
 async function bootstrapMissingSlots(existing: ActiveFishSlotRecord[]): Promise<ActiveFishSlotRecord[]> {
   const slotsByIndex = new Map(existing.map((slot) => [slot.slot_index, slot]));
 
@@ -162,4 +174,3 @@ function ensureConfig(): void {
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/$/, '');
 }
-

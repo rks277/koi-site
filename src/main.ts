@@ -4,11 +4,13 @@ import {
   fetchFishPopulation,
   hasSupabaseConfig,
   loadActiveFishSlots,
+  recordSiteVisitor,
   updateFishFitness
 } from './backend/supabase';
 import {
   createRandomStoredGenome,
   generateChildGenome,
+  normalizeStoredGenome,
   selectParentPair,
   type FishGenomeRecord
 } from './evolution/genomes';
@@ -24,6 +26,7 @@ const infoPanel = document.getElementById('info-panel') as HTMLElement | null;
 const FISH_COUNT = 7;
 const PLACEMENT_TRIES = 40;
 const LOCAL_STORAGE_KEY = 'koi.local.activeFish.v1';
+const VISITOR_STORAGE_KEY = 'koi.site.visitorId.v1';
 
 interface Fish {
   slotIndex: number;
@@ -56,6 +59,36 @@ infoToggle?.addEventListener('click', (event) => {
 infoPanel?.addEventListener('click', (event) => {
   event.stopPropagation();
 });
+
+function recordUniqueVisitor(): void {
+  if (!hasSupabaseConfig()) return;
+  const visitorId = getOrCreateVisitorId();
+  if (!visitorId) return;
+  void recordSiteVisitor(visitorId).catch((error) => {
+    console.warn('Could not record site visitor.', error);
+  });
+}
+
+function getOrCreateVisitorId(): string | null {
+  try {
+    const stored = localStorage.getItem(VISITOR_STORAGE_KEY);
+    if (stored) return stored;
+
+    const visitorId = typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : fallbackVisitorId();
+    localStorage.setItem(VISITOR_STORAGE_KEY, visitorId);
+    return visitorId;
+  } catch (error) {
+    console.warn('Could not create site visitor id.', error);
+    return null;
+  }
+}
+
+function fallbackVisitorId(): string {
+  const random = Math.random().toString(36).slice(2);
+  return `${Date.now().toString(36)}-${random}`;
+}
 
 function updateContentRect() {
   if (contentElement) {
@@ -235,10 +268,37 @@ function loadLocalRecords(): Array<{ slotIndex: number; record: FishGenomeRecord
     if (!raw) return null;
     const records = JSON.parse(raw) as Array<{ slotIndex: number; record: FishGenomeRecord; activatedAt: string }>;
     if (!Array.isArray(records) || records.length !== FISH_COUNT) return null;
-    return records.sort((a, b) => a.slotIndex - b.slotIndex);
+    const normalized = records.map((entry, index) => normalizeLocalRecord(entry, index));
+    saveLocalRecords(normalized);
+    return normalized.sort((a, b) => a.slotIndex - b.slotIndex);
   } catch {
     return null;
   }
+}
+
+function normalizeLocalRecord(
+  entry: Partial<{ slotIndex: number; record: Partial<FishGenomeRecord>; activatedAt: string }>,
+  index: number
+): { slotIndex: number; record: FishGenomeRecord; activatedAt: string } {
+  const now = new Date().toISOString();
+  const slotIndex = Number.isFinite(entry.slotIndex) ? Number(entry.slotIndex) : index + 1;
+  const record = entry.record ?? {};
+  const id = typeof record.id === 'string' ? record.id : `local-${slotIndex}-${Date.now()}-${index}`;
+  const createdAt = typeof record.created_at === 'string' ? record.created_at : now;
+
+  return {
+    slotIndex,
+    activatedAt: typeof entry.activatedAt === 'string' ? entry.activatedAt : createdAt,
+    record: {
+      id,
+      genome: normalizeStoredGenome(record.genome),
+      generation: typeof record.generation === 'number' ? record.generation : 0,
+      parent_a: typeof record.parent_a === 'string' ? record.parent_a : null,
+      parent_b: typeof record.parent_b === 'string' ? record.parent_b : null,
+      fitness: typeof record.fitness === 'number' ? record.fitness : 0,
+      created_at: createdAt
+    }
+  };
 }
 
 function saveLocalRecords(records: Array<{ slotIndex: number; record: FishGenomeRecord; activatedAt: string }>): void {
@@ -482,6 +542,7 @@ function frame(now: number): void {
 }
 
 resize();
+recordUniqueVisitor();
 void initializePond();
 lastTime = performance.now();
 requestAnimationFrame(frame);
