@@ -202,16 +202,22 @@ async function regenerateFish(f: Fish): Promise<void> {
   if (f.replacing) return;
   f.replacing = true;
 
-  const survivalSeconds = Math.max(0, (Date.now() - f.activatedAtMs) / 1000);
-  const replacement = hasSupabaseConfig() && isUuid(f.genomeRecord.id)
-    ? await createBackendReplacement(f, survivalSeconds)
-    : createLocalReplacement(f, survivalSeconds);
+  try {
+    const survivalSeconds = Math.max(0, (Date.now() - f.activatedAtMs) / 1000);
+    const replacement = hasSupabaseConfig() && isUuid(f.genomeRecord.id)
+      ? await createBackendReplacement(f, survivalSeconds).catch((error) => {
+          console.warn('Backend koi evolution failed; using local replacement.', error);
+          return createLocalReplacement(f, survivalSeconds);
+        })
+      : createLocalReplacement(f, survivalSeconds);
 
-  f.genomeRecord = replacement.record;
-  f.activatedAtMs = Date.parse(replacement.activatedAt);
-  f.koi = buildKoiFromGenome(replacement.record.genome.seed, replacement.record.genome.parameters, scaleForFish(replacement.record));
-  f.prevWhiskers = null;
-  f.replacing = false;
+    f.genomeRecord = replacement.record;
+    f.activatedAtMs = Date.parse(replacement.activatedAt);
+    f.koi = buildKoiFromGenome(replacement.record.genome.seed, replacement.record.genome.parameters, scaleForFish(replacement.record));
+    f.prevWhiskers = null;
+  } finally {
+    f.replacing = false;
+  }
 }
 
 function isUuid(value: string): boolean {
@@ -222,17 +228,25 @@ async function createBackendReplacement(
   f: Fish,
   survivalSeconds: number
 ): Promise<{ record: FishGenomeRecord; activatedAt: string }> {
-  await updateFishFitness(f.genomeRecord.id, survivalSeconds);
-  const population = await fetchFishPopulation();
+  await withStep('update fish fitness', () => updateFishFitness(f.genomeRecord.id, survivalSeconds));
+  const population = await withStep('fetch fish population', () => fetchFishPopulation());
   const [parentA, parentB] = selectParentPair(population);
-  const record = await createFishGenome({
+  const record = await withStep('create fish genome', () => createFishGenome({
     genome: generateChildGenome(parentA.genome, parentB.genome),
     generation: Math.max(parentA.generation, parentB.generation) + 1,
     parentA: parentA.id,
     parentB: parentB.id
-  });
-  await activateFishSlot(f.slotIndex, record.id);
+  }));
+  await withStep('activate fish slot', () => activateFishSlot(f.slotIndex, record.id));
   return { record, activatedAt: new Date().toISOString() };
+}
+
+async function withStep<T>(step: string, action: () => Promise<T>): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    throw new Error(`Could not ${step}.`, { cause: error });
+  }
 }
 
 function createLocalReplacement(

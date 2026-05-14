@@ -31,8 +31,8 @@ interface ActiveFishSlotRow {
 
 const ACTIVE_SLOT_COUNT = 7;
 const env = import.meta.env as ImportMetaEnv & Record<string, string | undefined>;
-const supabaseUrl = trimTrailingSlash(env.VITE_SUPABASE_URL ?? env.NEXT_PUBLIC_SUPABASE_URL ?? '');
-const supabaseAnonKey = env.VITE_SUPABASE_ANON_KEY ?? env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
+const supabaseUrl = normalizeEnvValue(env.VITE_SUPABASE_URL ?? env.NEXT_PUBLIC_SUPABASE_URL ?? '');
+const supabaseAnonKey = normalizeEnvValue(env.VITE_SUPABASE_ANON_KEY ?? env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '');
 
 export function hasSupabaseConfig(): boolean {
   return supabaseUrl.length > 0 && supabaseAnonKey.length > 0;
@@ -140,7 +140,8 @@ async function bootstrapMissingSlots(existing: ActiveFishSlotRecord[]): Promise<
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${supabaseUrl}${path}`, {
+  const url = new URL(path, `${supabaseUrl}/`);
+  const response = await fetch(url, {
     ...init,
     headers: {
       apikey: supabaseAnonKey,
@@ -171,6 +172,6 @@ function ensureConfig(): void {
   }
 }
 
-function trimTrailingSlash(value: string): string {
-  return value.replace(/\/$/, '');
+function normalizeEnvValue(value: string): string {
+  return value.trim().replace(/^['"]|['"]$/g, '').replace(/\/$/, '');
 }
