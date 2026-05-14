@@ -1,7 +1,6 @@
 import {
   activateFishSlot,
   createFishGenome,
-  fetchFishPopulation,
   hasSupabaseConfig,
   loadActiveFishSlots,
   recordSiteVisitor,
@@ -204,20 +203,30 @@ async function regenerateFish(f: Fish): Promise<void> {
 
   try {
     const survivalSeconds = Math.max(0, (Date.now() - f.activatedAtMs) / 1000);
-    const replacement = hasSupabaseConfig() && isUuid(f.genomeRecord.id)
-      ? await createBackendReplacement(f, survivalSeconds).catch((error) => {
-          console.warn('Backend koi evolution failed; using local replacement.', error);
-          return createLocalReplacement(f, survivalSeconds);
-        })
-      : createLocalReplacement(f, survivalSeconds);
+    const previousRecord = f.genomeRecord;
+    const optimistic = createOptimisticReplacement(f, survivalSeconds);
+    applyReplacement(f, optimistic);
 
-    f.genomeRecord = replacement.record;
-    f.activatedAtMs = Date.parse(replacement.activatedAt);
-    f.koi = buildKoiFromGenome(replacement.record.genome.seed, replacement.record.genome.parameters, scaleForFish(replacement.record));
-    f.prevWhiskers = null;
+    if (hasSupabaseConfig() && isUuid(previousRecord.id)) {
+      const persisted = await createBackendReplacement(previousRecord, f.slotIndex, survivalSeconds, optimistic)
+        .catch((error) => {
+          console.warn('Backend koi evolution failed; keeping optimistic local replacement.', error);
+          return null;
+        });
+      if (persisted) applyReplacement(f, persisted);
+    } else {
+      saveCurrentLocalRecords();
+    }
   } finally {
     f.replacing = false;
   }
+}
+
+function applyReplacement(f: Fish, replacement: { record: FishGenomeRecord; activatedAt: string }): void {
+  f.genomeRecord = replacement.record;
+  f.activatedAtMs = Date.parse(replacement.activatedAt);
+  f.koi = buildKoiFromGenome(replacement.record.genome.seed, replacement.record.genome.parameters, scaleForFish(replacement.record));
+  f.prevWhiskers = null;
 }
 
 function isUuid(value: string): boolean {
@@ -225,20 +234,20 @@ function isUuid(value: string): boolean {
 }
 
 async function createBackendReplacement(
-  f: Fish,
-  survivalSeconds: number
+  previousRecord: FishGenomeRecord,
+  slotIndex: number,
+  survivalSeconds: number,
+  replacement: { record: FishGenomeRecord; activatedAt: string }
 ): Promise<{ record: FishGenomeRecord; activatedAt: string }> {
-  await withStep('update fish fitness', () => updateFishFitness(f.genomeRecord.id, survivalSeconds));
-  const population = await withStep('fetch fish population', () => fetchFishPopulation());
-  const [parentA, parentB] = selectParentPair(population);
+  await withStep('update fish fitness', () => updateFishFitness(previousRecord.id, survivalSeconds));
   const record = await withStep('create fish genome', () => createFishGenome({
-    genome: generateChildGenome(parentA.genome, parentB.genome),
-    generation: Math.max(parentA.generation, parentB.generation) + 1,
-    parentA: parentA.id,
-    parentB: parentB.id
+    genome: replacement.record.genome,
+    generation: replacement.record.generation,
+    parentA: isUuid(replacement.record.parent_a ?? '') ? replacement.record.parent_a : null,
+    parentB: isUuid(replacement.record.parent_b ?? '') ? replacement.record.parent_b : null
   }));
-  await withStep('activate fish slot', () => activateFishSlot(f.slotIndex, record.id));
-  return { record, activatedAt: new Date().toISOString() };
+  await withStep('activate fish slot', () => activateFishSlot(slotIndex, record.id));
+  return { record, activatedAt: replacement.activatedAt };
 }
 
 async function withStep<T>(step: string, action: () => Promise<T>): Promise<T> {
@@ -249,7 +258,7 @@ async function withStep<T>(step: string, action: () => Promise<T>): Promise<T> {
   }
 }
 
-function createLocalReplacement(
+function createOptimisticReplacement(
   f: Fish,
   survivalSeconds: number
 ): { record: FishGenomeRecord; activatedAt: string } {
@@ -271,14 +280,15 @@ function createLocalReplacement(
       created_at: now
     }
   };
-  saveLocalRecords(fish.map((entry) => entry === f
-    ? { slotIndex: f.slotIndex, record: replacement.record, activatedAt: replacement.activatedAt }
-    : {
-        slotIndex: entry.slotIndex,
-        record: entry.genomeRecord,
-        activatedAt: new Date(entry.activatedAtMs).toISOString()
-      }));
   return replacement;
+}
+
+function saveCurrentLocalRecords(): void {
+  saveLocalRecords(fish.map((entry) => ({
+    slotIndex: entry.slotIndex,
+    record: entry.genomeRecord,
+    activatedAt: new Date(entry.activatedAtMs).toISOString()
+  })));
 }
 
 function loadLocalRecords(): Array<{ slotIndex: number; record: FishGenomeRecord; activatedAt: string }> | null {
@@ -338,7 +348,7 @@ function resize(): void {
 }
 addEventListener('resize', resize);
 
-function fishAtPoint(x: number, y: number): Fish | null {
+function fishAtPoint(x: number, y: number, extraHitRadius = 0): Fish | null {
   for (const f of fish) {
     const len = bodyLengthPx(f.koi);
     const halfLen = len * 0.5;
@@ -348,7 +358,7 @@ function fishAtPoint(x: number, y: number): Fish | null {
     const across = -dx * Math.sin(f.heading) + dy * Math.cos(f.heading);
     const clampedAlong = Math.max(-halfLen, Math.min(halfLen, along));
     const distToBody = Math.hypot(along - clampedAlong, across);
-    const hitR = Math.max(18, len * 0.18);
+    const hitR = Math.max(18, len * 0.18) + extraHitRadius;
 
     if (distToBody < hitR) return f;
   }
@@ -356,12 +366,15 @@ function fishAtPoint(x: number, y: number): Fish | null {
 }
 
 addEventListener('pointermove', (e) => {
-  document.body.style.cursor = fishAtPoint(e.clientX, e.clientY) ? 'pointer' : '';
+  if (e.pointerType === 'mouse') {
+    document.body.style.cursor = fishAtPoint(e.clientX, e.clientY) ? 'pointer' : '';
+  }
 });
 
-addEventListener('click', (e) => {
-  const f = fishAtPoint(e.clientX, e.clientY);
+addEventListener('pointerdown', (e) => {
+  const f = fishAtPoint(e.clientX, e.clientY, e.pointerType === 'touch' ? 18 : 0);
   if (f) {
+    e.preventDefault();
     void regenerateFish(f).catch((error) => {
       f.replacing = false;
       console.error('Could not evolve koi.', error);
