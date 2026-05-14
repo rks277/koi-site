@@ -45,6 +45,7 @@ let fish: Fish[] = [];
 let loadingPond = false;
 let canvasDpr = 0;
 let resizeFrame: number | null = null;
+let pendingLayoutResize = false;
 
 let contentRect: DOMRect | null = null;
 const contentElement = document.getElementById('content');
@@ -341,10 +342,14 @@ function effectiveCanvasDpr(): number {
   return Math.min(3, Math.max(1, (window.devicePixelRatio || 1) * viewportScale));
 }
 
-function resize(): void {
+function isViewportZoomed(): boolean {
+  return (window.visualViewport?.scale ?? 1) > 1.01;
+}
+
+function resize(updateLayout: boolean): void {
   const dpr = effectiveCanvasDpr();
-  const nextW = innerWidth;
-  const nextH = innerHeight;
+  const nextW = updateLayout || W === 0 ? innerWidth : W;
+  const nextH = updateLayout || H === 0 ? innerHeight : H;
   const nextCanvasW = Math.floor(nextW * dpr);
   const nextCanvasH = Math.floor(nextH * dpr);
 
@@ -356,22 +361,27 @@ function resize(): void {
     canvasDpr = dpr;
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  W = nextW;
-  H = nextH;
-  updateContentRect();
+  if (updateLayout || W === 0 || H === 0) {
+    W = nextW;
+    H = nextH;
+    updateContentRect();
+  }
   if (fish.length === 0) void initializePond();
 }
 
-function scheduleResize(): void {
+function scheduleResize(updateLayout: boolean): void {
+  pendingLayoutResize ||= updateLayout;
   if (resizeFrame !== null) return;
   resizeFrame = requestAnimationFrame(() => {
     resizeFrame = null;
-    resize();
+    const shouldUpdateLayout = pendingLayoutResize;
+    pendingLayoutResize = false;
+    resize(shouldUpdateLayout);
   });
 }
-addEventListener('resize', scheduleResize);
-window.visualViewport?.addEventListener('resize', scheduleResize);
-window.visualViewport?.addEventListener('scroll', scheduleResize);
+addEventListener('resize', () => scheduleResize(!isViewportZoomed()));
+window.visualViewport?.addEventListener('resize', () => scheduleResize(false));
+window.visualViewport?.addEventListener('scroll', () => scheduleResize(false));
 
 function fishAtPoint(x: number, y: number, extraHitRadius = 0): Fish | null {
   for (const f of fish) {
@@ -614,7 +624,7 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 }
 
-resize();
+resize(true);
 recordUniqueVisitor();
 void initializePond();
 lastTime = performance.now();
