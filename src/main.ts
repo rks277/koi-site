@@ -156,6 +156,7 @@ async function initializePond(): Promise<void> {
   try {
     if (hasSupabaseConfig()) {
       const slots = await loadActiveFishSlots();
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
       rebuildPond(slots.map((slot) => ({
         slotIndex: slot.slot_index,
         record: slot.fish,
@@ -202,7 +203,7 @@ async function regenerateFish(f: Fish): Promise<void> {
   f.replacing = true;
 
   const survivalSeconds = Math.max(0, (Date.now() - f.activatedAtMs) / 1000);
-  const replacement = hasSupabaseConfig()
+  const replacement = hasSupabaseConfig() && isUuid(f.genomeRecord.id)
     ? await createBackendReplacement(f, survivalSeconds)
     : createLocalReplacement(f, survivalSeconds);
 
@@ -211,6 +212,10 @@ async function regenerateFish(f: Fish): Promise<void> {
   f.koi = buildKoiFromGenome(replacement.record.genome.seed, replacement.record.genome.parameters, scaleForFish(replacement.record));
   f.prevWhiskers = null;
   f.replacing = false;
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 async function createBackendReplacement(
