@@ -43,6 +43,8 @@ let W = 0;
 let H = 0;
 let fish: Fish[] = [];
 let loadingPond = false;
+let canvasDpr = 0;
+let resizeFrame: number | null = null;
 
 let contentRect: DOMRect | null = null;
 const contentElement = document.getElementById('content');
@@ -334,19 +336,42 @@ function saveLocalRecords(records: Array<{ slotIndex: number; record: FishGenome
   localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(records));
 }
 
+function effectiveCanvasDpr(): number {
+  const viewportScale = window.visualViewport?.scale ?? 1;
+  return Math.min(3, Math.max(1, (window.devicePixelRatio || 1) * viewportScale));
+}
+
 function resize(): void {
-  // Cap DPR at 2 — beyond that we render >4× the pixels for ~no visual gain
-  // and Chrome's canvas filter/compositor cost balloons.
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  cvs.width = Math.floor(innerWidth * dpr);
-  cvs.height = Math.floor(innerHeight * dpr);
+  const dpr = effectiveCanvasDpr();
+  const nextW = innerWidth;
+  const nextH = innerHeight;
+  const nextCanvasW = Math.floor(nextW * dpr);
+  const nextCanvasH = Math.floor(nextH * dpr);
+
+  if (cvs.width !== nextCanvasW || cvs.height !== nextCanvasH) {
+    cvs.width = nextCanvasW;
+    cvs.height = nextCanvasH;
+  }
+  if (canvasDpr !== dpr) {
+    canvasDpr = dpr;
+  }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  W = innerWidth;
-  H = innerHeight;
+  W = nextW;
+  H = nextH;
   updateContentRect();
   if (fish.length === 0) void initializePond();
 }
-addEventListener('resize', resize);
+
+function scheduleResize(): void {
+  if (resizeFrame !== null) return;
+  resizeFrame = requestAnimationFrame(() => {
+    resizeFrame = null;
+    resize();
+  });
+}
+addEventListener('resize', scheduleResize);
+window.visualViewport?.addEventListener('resize', scheduleResize);
+window.visualViewport?.addEventListener('scroll', scheduleResize);
 
 function fishAtPoint(x: number, y: number, extraHitRadius = 0): Fish | null {
   for (const f of fish) {
