@@ -428,6 +428,16 @@ function steerToward(current: number, target: number, rate: number): number {
   return current + angleDelta(current, target) * rate;
 }
 
+function turnAwayFromWall(f: Fish, normalX: number, normalY: number): void {
+  const vx = Math.cos(f.heading);
+  const vy = Math.sin(f.heading);
+  if (vx * normalX + vy * normalY >= 0) return;
+  const tangentSign = Math.random() < 0.5 ? -1 : 1;
+  const tangentX = -normalY * tangentSign;
+  const tangentY = normalX * tangentSign;
+  f.heading = Math.atan2(normalY * 0.9 + tangentY * 0.35, normalX * 0.9 + tangentX * 0.35);
+}
+
 function updatePhysics(dt: number): void {
   const margin = 100;
 
@@ -598,10 +608,22 @@ function updatePhysics(dt: number): void {
 
     // Keep the *entire* fish body on screen, not just the centroid.
     const screenPad = lenF * 0.5;
-    if (f.pos.x < screenPad) f.pos.x = screenPad;
-    if (f.pos.x > W - screenPad) f.pos.x = W - screenPad;
-    if (f.pos.y < screenPad) f.pos.y = screenPad;
-    if (f.pos.y > H - screenPad) f.pos.y = H - screenPad;
+    if (f.pos.x < screenPad) {
+      f.pos.x = screenPad;
+      turnAwayFromWall(f, 1, 0);
+    }
+    if (f.pos.x > W - screenPad) {
+      f.pos.x = W - screenPad;
+      turnAwayFromWall(f, -1, 0);
+    }
+    if (f.pos.y < screenPad) {
+      f.pos.y = screenPad;
+      turnAwayFromWall(f, 0, 1);
+    }
+    if (f.pos.y > H - screenPad) {
+      f.pos.y = H - screenPad;
+      turnAwayFromWall(f, 0, -1);
+    }
   }
 }
 
